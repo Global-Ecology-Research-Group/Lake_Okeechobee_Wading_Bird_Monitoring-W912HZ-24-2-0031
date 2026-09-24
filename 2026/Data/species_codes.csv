@@ -1,0 +1,30 @@
+Wading Bird Code,Species
+AMBI,American Bittern
+ANHI,Anhinga
+BCNH,Black-crowned Night Heron
+BRPE,Brown Pelican
+CAEG,Cattle Egret
+DCCO,Double-crested Cormorant
+GLIB,Glossy Ibis
+GBHE,Great Blue Heron
+GREG,Great Egret
+GWHE,Great White Heron
+GRHE,Green Heron
+LEBI,Least Bittern
+LIMP,Limpkin
+LBHE,Little Blue Heron
+REEG,Reddish Egret
+ROSP,Roseate Spoonbill
+SNEG,Snowy Egret
+TRHE,Tricolored Heron
+WHIB,White Ibis
+WOST,Wood Stork
+YCNH,Yellow-crowned Night Heron
+DARK,Dark colored waders
+LIGH,Light colored waders
+SMWT,"Small White Egrets and Herons (SNEG, CAEG)"
+LGWT,"Large White Egrets and Herons (GREG, GWHE)"
+SMDK,"Small Dark Egrets and Herons (LBHE, TRHE)"
+LGDK,Large Dark Herons (GBHE)
+WABI,All Wading Birds (for totals)
+UNKN,Unknown

@@ -1,0 +1,8 @@
+Species,Colonies,Number of Nests,Number of Eggs (Mean ± SD),Median Initiation Date,Historic Initiation Date,Incubation Success,Nest Success (Estimate ± SD),Historic Nest Success (Mean ± SD)
+GREG,"CS1, CS2",3,2.3 ± 0.6,-,8-Mar,0%,0%,76.9% ± 20.1%
+SNEG*,"CS1, LBB, RI12",41,2.3 ± 0.6,11-Apr,25-Mar,77.0% ± 7.6%,61.2% ± 8.7%,68.4% ± 16.6%
+TRHE*,"CS1, LBB, RI11, RI12",41,2.3 ± 0.6,22-Apr,25-Mar,77.0% ± 7.6%,61.2% ± 8.7%,68.4% ± 16.6%
+WHIB,"CS1, LBB, RI11, RI12",79,2.1 ± 0.6,6-May,14-Apr,58.4% ± 5.7%,36.9% ± 5.7%,52.3% ± 20.8%
+GLIB,"CS1, LBB, RI11, RI12",39,2.9 ± 0.6,22-Apr,-,77.2% ± 7.1%,48.6% ± 8.6%,-
+ROSP,"CS1, CS2, RI11, RI12",39,2.9 ± 1.0,25-Feb,-,59.4% ± 9.9%,52.8% ± 9.1%,-
+GBHE,"CS1, RI11, RI12",7,3.0 ± 0.6,21-Feb,-,100%,92.4% ± 7.3%,-
