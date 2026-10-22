@@ -22,20 +22,26 @@ select <- dplyr::select
 slice <- dplyr::slice
 
 # read in aerial and ground survey data
-ag_data <- read_csv("2026/Data/Wading_Bird_Aerial_Ground_Survey_Database.csv") %>%
+ag_data <- read_csv("Data/Wading_Bird_Aerial_Ground_Survey_Database.csv") %>%
   mutate(Date=mdy(Date)) %>% 
-  filter(Date > mdy("01-01-2026"))
+  filter(Date > mdy("01-01-2026")) %>%
+  # add a new colony name column where rock islands are grouped to "Rock Island Complex"
+  mutate(`Colony Name_up` = if_else(
+    str_starts(`Colony Name`, "Rock Island"),
+    "Rock Island Complex",
+    `Colony Name`
+  ))
 
 # read in nest check data
-nest_data <- read_csv("2026/Data/Wading_Bird_Nest_Check_Database.csv") %>%
+nest_data <- read_csv("Data/Wading_Bird_Nest_Check_Database.csv") %>%
   mutate(Date=mdy(Date)) %>% 
   filter(Date > mdy("01-01-2026"))
 
 # read in nest location data
-nest_locations <- read_csv("2026/Data/2026_Colonies.csv")
+nest_locations <- read_csv("Data/2026_Colonies.csv")
 
 # historic nesting counts
-historic <- read_csv("2026/Data/Historic_Nest_Counts_Lake_O.csv")
+historic <- read_csv("Data/Historic_Nest_Counts_Lake_O.csv")
 
 # Aerial Survey Summary ---------------------------------------------------
 
@@ -59,11 +65,15 @@ photo_count <- ag_data %>%
 # get the average count of bird by species for each month
 avg_month <- photo_count %>%
   group_by(Month, `Colony Name`, `Species Code`) %>%
-  summarise(mean_count = ceiling(mean(`Nest Count`, na.rm = TRUE)), .groups = "drop")
+  summarise(mean_count = ceiling(mean(`Nest Count`, na.rm = TRUE)),
+            `Colony Name_up` = first(`Colony Name_up`),
+            .groups = "drop") %>%
+  group_by(Month, `Colony Name_up`, `Species Code`) %>%
+  summarise(mean_count = ceiling(sum(`Nest Count`, na.rm = TRUE)), .groups = "drop")
 
 # get the maximum count per species by colony
 max_counts <- avg_month %>%
-  group_by(`Colony Name`, `Species Code`) %>%
+  group_by(`Colony Name_up`, `Species Code`) %>%
   summarise(max_count = max(mean_count, na.rm=TRUE)) %>%
   pivot_wider(
     names_from = `Species Code`,
@@ -71,35 +81,43 @@ max_counts <- avg_month %>%
     values_fill = 0  
   ) %>%
   # order columns to match wading bird reports
-  select("Colony Name", "GREG", "WHIB", "SNEG", "ROSP", "GBHE", "LBHE", "TRHE", "GLIB", "SMDK",
-         "SMWT",  "CAEG", "ANHI")
+  select("Colony Name_up", "GREG", "WHIB", "SNEG", "ROSP", "GBHE", "LBHE", "TRHE", "GLIB", "SMDK",
+         "SMWT",  "CAEG", "ANHI") 
 
 # next determine the month of peak nesting for all species (except for non-wading birds: DCCO, CAEG, ANHI)
 nest_total_by_month <- avg_month %>%
   filter(!`Species Code` %in% c("DCCO", "CAEG", "ANHI")) %>%
-  group_by(Month, `Colony Name`) %>%
+  group_by(Month, `Colony Name_up`) %>%
   summarise(count=sum(mean_count))
 
 (peak_month <- nest_total_by_month %>%
-  group_by(`Colony Name`) %>%
+  group_by(`Colony Name_up`) %>%
   slice_max(order_by = count, n = 1, with_ties = FALSE) %>%
   ungroup() %>%
     select(-count))
 
 # add this to the max_counts data frame
-max_counts <- left_join(max_counts, peak_month, by=c("Colony Name"))
+max_counts <- left_join(max_counts, peak_month, by=c("Colony Name_up"))
 
 # fix encoding issues in the nest_locations file
 nest_locations <- nest_locations %>%
   mutate(Colony = gsub("\u00A0", " ", Colony))
 
 # add nest location data
-max_counts <- left_join(max_counts, nest_locations %>% select(-`Nest Checks`), by=c("Colony Name"="Colony"))
+max_counts <- left_join(max_counts, 
+                        nest_locations %>% 
+                          select(-`Nest Checks`) %>%
+                          add_row(
+                            Colony = "Rock Island Complex",
+                            Latitude = 26.96706,
+                            Longitude = -81.04669
+                          ), 
+                        by=c("Colony Name_up"="Colony"))
 
 # clean up the order of columns
 max_counts <- max_counts %>%
   select(
-    `Colony Name`,
+    `Colony Name_up`,
     Month,
     Latitude,
     Longitude,
@@ -108,12 +126,13 @@ max_counts <- max_counts %>%
 
 # finally, let's get total counts of species-specific peak nest abundances (except for non-wading birds: DCCO, CAEG, ANHI)
 max_counts <- max_counts %>%
-  mutate(Total = rowSums(across(GREG:SMWT), na.rm=TRUE))
+  mutate(Total = rowSums(across(GREG:SMWT), na.rm=TRUE)) %>%
+  rename(`Colony Name` = `Colony Name_up`)
 
 max_counts
 
 # now save the table 
-write_csv(max_counts, "2026/Tables/Table_2.csv")
+write_csv(max_counts, "Tables/Table_2.csv")
 
 # how many colonies?
 nrow(max_counts)
@@ -164,7 +183,7 @@ sum(sum(max_counts$GREG), sum(max_counts$WHIB), sum(max_counts$SNEG))
 # calculate historic mean and sd
 
 # for this, we will use the clean data
-historic_clean <- read_csv("2026/Data/historic_nest_totals.csv")
+historic_clean <- read_csv("Data/historic_nest_totals.csv")
 
 # filter to 2008-2025
 historic_clean_focal <- historic_clean %>%
@@ -189,7 +208,7 @@ sd(hist_sp_greg$count)
 
 sum(max_counts$GREG)
 
-# determine the percentage change from the average between 2008 and 2023 which is 3,095
+# determine the percentage change from the average between 2008 and 2025
 (mean(hist_sp_greg$count)-sum(max_counts$GREG))/mean(hist_sp_greg$count)*100
 
 # let's look at just SNEG
@@ -205,7 +224,7 @@ sd(hist_sp_sneg$count)
 
 sum(max_counts$SNEG)
 
-# determine the percentage change from the average between 2008 and 2023 which is 3,095
+# determine the percentage change from the average between 2008 and 2025
 (mean(hist_sp_sneg$count)-sum(max_counts$SNEG))/mean(hist_sp_sneg$count)*100
 
 # let's look at just WHIB
@@ -221,14 +240,14 @@ sd(hist_sp_whib$count)
 
 sum(max_counts$WHIB)
 
-# determine the percentage change from the average between 2008 and 2023 which is 3,095
+# determine the percentage change from the average between 2008 and 2025
 (mean(hist_sp_whib$count)-sum(max_counts$WHIB))/mean(hist_sp_whib$count)*100
 
 
 #### Clean max count data to add to historic data excel ----------------------
 
 # read in species codes
-species_codes <- read_csv("2026/Data/species_codes.csv")
+species_codes <- read_csv("Data/species_codes.csv")
 colnames(species_codes) <- c("Species", "Wading Bird Code")
 
 max_counts_colony_type_clean <- max_counts_colony_type %>% 
@@ -241,6 +260,8 @@ max_counts_colony_type_clean <- max_counts_colony_type %>%
   mutate(`Report Year` = 2026) %>%
   select(`Report Year`, `Colony Name`, `Colony Type`, `Wading Bird Code`, Count) %>%
   rename(Species=`Wading Bird Code`)
+
+write_csv(max_counts_colony_type_clean, "Data/2026_data_to_combine_historic_data.csv")
 
 ### Timing and nest numbers for species ---------------------------------------------------------------------
 
@@ -260,14 +281,14 @@ max_counts_colony_type_clean <- max_counts_colony_type %>%
   mutate(Total = rowSums(across(GREG:SMWT), na.rm=TRUE)))
 
 # now save the table 
-write_csv(sp_by_month, "2026/Tables/Table_3.csv")
+write_csv(sp_by_month, "Tables/Table_3.csv")
 
 ## Map - Aerial Survey Route ---------------------------------------------------------------------
 
 # Make map of aerial survey route
 
 # Start by reading in the data
-aerial_tracks_wgs84 <- st_read("2026/Data/aerial_survey_route.shp")
+aerial_tracks_wgs84 <- st_read("Data/aerial_survey_route.shp")
 
 # get satellite imagery
 
@@ -297,11 +318,24 @@ aerial_tracks_wgs84 <- st_transform(aerial_tracks_wgs84, crs(sat_map))
 imagery_map <- ggRGB(sat_map, r = 1, g = 2, b = 3) +
   geom_sf(data = aerial_tracks_wgs84,
           color = "white", lwd = 2, inherit.aes = FALSE) +
-  annotation_scale(location="bl", width_hint=0.3,
-                   pad_x=unit(0.5,"in"), pad_y=unit(0.4,"in")) +
-  annotation_north_arrow(location="bl", which_north="true",
-                         pad_x=unit(0.5,"in"), pad_y=unit(0.6,"in"),
-                         style=north_arrow_fancy_orienteering) +
+  annotation_scale(
+    location = "bl",
+    width_hint = 0.35,
+    text_cex = 1.2,
+    line_width = 1,
+    text_col = "white",
+    line_col = "white",
+    height = unit(0.2, "cm"),
+    pad_x = unit(0.5, "in"),
+    pad_y = unit(0.4, "in")
+  ) +
+  annotation_north_arrow(
+    location = "bl",
+    which_north = "true",
+    pad_x = unit(0.5, "in"),
+    pad_y = unit(0.7, "in"),
+    style = north_arrow_fancy_orienteering
+  ) +
   theme_void()
 
 imagery_map
@@ -314,11 +348,16 @@ us_states <- ne_states(country = "United States of America", returnclass = "sf")
 florida <- us_states[us_states$name == "Florida", ]
 
 # Survey centroid for inset point
-survey_point <- st_centroid(st_union(aerial_tracks_wgs84))
+# Bounding box of the aerial survey map
+survey_bbox <- st_as_sfc(bbox_expanded) %>%
+  st_set_crs(st_crs(aerial_tracks_wgs84))
 
 inset_map <- ggplot() +
   geom_sf(data = florida, fill = "grey80", color = "grey50") +
-  geom_sf(data = survey_point, color = "black", size = 4) +
+  geom_sf(data = survey_bbox,
+          fill = NA,
+          color = "black",
+          linewidth = 1) +
   theme_void()
 
 # Combine maps and inset
@@ -335,7 +374,7 @@ final_plot_transects <- ggdraw() +
 
 final_plot_transects
 
-ggsave("2026/Figures/Figure_1.jpeg", height=6, width=6, units="in")
+ggsave("Figures/Figure_1.jpeg", height=6, width=6, units="in")
 
 ## Map - Colony Locations ---------------------------------------------------------------------
 
@@ -403,7 +442,7 @@ rock_island_label <- nc_locs_sf %>%
   summarise(geometry = st_union(geometry)) %>%
   st_centroid() %>%
   mutate(
-    label = "Rock Island 5–15",
+    label = "Rock Island Complex",
     lon = st_coordinates(.)[,1],
     lat = st_coordinates(.)[,2]
   )
@@ -418,8 +457,11 @@ colony_locs <- ggRGB(sat_map, r = 1, g = 2, b = 3) +
   # Plot all colony locations, including Rock Islands
   geom_sf(
     data = nc_locs_sf,
-    color = "white",
+    shape = 21,
+    fill = "white",
+    color = "black",
     size = 3,
+    stroke = 0.7,
     inherit.aes = FALSE
   ) +
   
@@ -439,24 +481,28 @@ colony_locs <- ggRGB(sat_map, r = 1, g = 2, b = 3) +
     aes(x = lon, y = lat, label = label),
     size = 4,
     color = "white",
-    box.padding = 0.5,
+    box.padding = 0.7,
     point.padding = 0.2,
     nudge_x = 0.03,
-    nudge_y = -0.01
+    nudge_y = -0.02
   ) +
   
   annotation_scale(
     location = "bl",
-    width_hint = 0.3,
+    width_hint = 0.35,
+    text_cex = 1.2,
+    line_width = 1,
+    text_col = "white",
+    line_col = "white",
+    height = unit(0.2, "cm"),
     pad_x = unit(0.5, "in"),
     pad_y = unit(0.4, "in")
   ) +
-  
   annotation_north_arrow(
     location = "bl",
     which_north = "true",
     pad_x = unit(0.5, "in"),
-    pad_y = unit(0.6, "in"),
+    pad_y = unit(0.7, "in"),
     style = north_arrow_fancy_orienteering
   ) +
   
@@ -511,11 +557,19 @@ colony_locs_inset <- colony_locs +
 
 colony_locs_inset
 
+inset_map2 <- ggplot() +
+  geom_sf(data = florida, fill = "grey80", color = "grey50") +
+  geom_sf(data = survey_bbox,
+          fill = NA,
+          color = "black",
+          linewidth = 0.5) +
+  theme_void()
+
 # combine with inset map from previous section
 final_map <- ggdraw() +
   draw_plot(colony_locs) +  # main map fills the canvas
   draw_plot(ggdraw() + 
-              draw_plot(inset_map) + 
+              draw_plot(inset_map2) + 
               theme(plot.background = element_rect(fill = "white", color = "black")),
             x = 0.8, y = 0.8, width = 0.2, height = 0.2)  # inset top-right
 final_map
@@ -523,7 +577,7 @@ final_map
 final_map / rock_inset
 
 # save it
-ggsave("2026/Figures/Figure_4.jpeg", height=9, width=9, units="in")
+ggsave("Figures/Figure_4.jpeg", height=9, width=9, units="in")
 
 
 ## Map - Previous Colony Locations ---------------------------------------------------------------------
@@ -574,6 +628,10 @@ bbox_sfc <- st_as_sfc(bbox_expanded)
 sat_map <- get_tiles(bbox_sfc, zoom=11, provider = "Esri.WorldImagery", crop = TRUE)
 
 # Plot satellite map with aerial tracks
+
+# Plot
+
+
 colony_locs_hist <- ggRGB(sat_map, r = 1, g = 2, b = 3) +
   
   geom_sf(
@@ -589,15 +647,28 @@ colony_locs_hist <- ggRGB(sat_map, r = 1, g = 2, b = 3) +
     ),
     inherit.aes = FALSE
   ) +
-  annotation_scale(location="bl", width_hint=0.3,
-                   pad_x=unit(0.5,"in"), pad_y=unit(0.4,"in")) +
-  annotation_north_arrow(location="bl", which_north="true",
-                         pad_x=unit(0.5,"in"), pad_y=unit(0.6,"in"),
-                         style=north_arrow_fancy_orienteering) +
+  annotation_scale(
+    location = "bl",
+    width_hint = 0.35,
+    text_cex = 1.2,
+    line_width = 1,
+    text_col = "white",
+    line_col = "white",
+    height = unit(0.2, "cm"),
+    pad_x = unit(0.5, "in"),
+    pad_y = unit(0.4, "in")
+  ) +
+  annotation_north_arrow(
+    location = "bl",
+    which_north = "true",
+    pad_x = unit(0.5, "in"),
+    pad_y = unit(0.7, "in"),
+    style = north_arrow_fancy_orienteering
+  ) +
   
   scale_color_manual(values = c(
     "Marsh Island"    = "#E69F00",
-    "Off-Lake Island" = "#009E73",
+    "Off-Lake Island" = "yellow",
     "Spoil Island"    = "#0072B2"
   )) +
   scale_shape_manual(
@@ -631,7 +702,7 @@ final_map <- ggdraw() +
 final_map
 
 # save it
-ggsave("2026/Figures/Figure_3.jpeg", height=6, width=7, units="in")
+ggsave("Figures/Figure_3.jpeg", height=6, width=7, units="in")
 
 
 # Nest Check Summary ---------------------------------------------------
@@ -656,7 +727,7 @@ nest_summary <- nest_data %>%
 nest_summary
 
 # now save the table 
-write_csv(nest_summary, "2026/Tables/Table_1.csv")
+write_csv(nest_summary, "Tables/Table_1.csv")
 
 ## Map - Nest Check Locations ---------------------------------------------------------------------
 
@@ -702,7 +773,15 @@ cols <- c("Clewiston Spit 1" = "#1b9e77",
 
 # Plot
 nest_locations_plot <- ggRGB(sat_map, r = 1, g = 2, b = 3) +
-  geom_sf(data = nc_locs_sf, aes(color = Colony), size = 5, inherit.aes = FALSE) +
+  geom_sf(
+    data = nc_locs_sf,
+    aes(fill = Colony),
+    shape = 21,
+    color = "black",
+    size = 5,
+    stroke = 0.8,
+    inherit.aes = FALSE
+  ) +
   geom_text_repel(
     data =  nc_locs,
     aes(x = Longitude, y = Latitude, label = Colony),
@@ -711,12 +790,25 @@ nest_locations_plot <- ggRGB(sat_map, r = 1, g = 2, b = 3) +
     point.padding = 0.2,
     color = "white"
   ) +
-  scale_color_manual(values=cols) +
-  annotation_scale(location="bl", width_hint=0.3,
-                   pad_x=unit(0.2,"in"), pad_y=unit(0.1,"in")) +
-  annotation_north_arrow(location="bl", which_north="true",
-                         pad_x=unit(0.2, "in"), pad_y=unit(0.2,"in"),
-                         style=north_arrow_fancy_orienteering) +
+  scale_fill_manual(values = cols) +
+  annotation_scale(
+    location = "bl",
+    width_hint = 0.35,
+    text_cex = 1.2,
+    line_width = 1,
+    text_col = "white",
+    line_col = "white",
+    height = unit(0.2, "cm"),
+    pad_x = unit(0.5, "in"),
+    pad_y = unit(0.4, "in")
+  ) +
+  annotation_north_arrow(
+    location = "bl",
+    which_north = "true",
+    pad_x = unit(0.5, "in"),
+    pad_y = unit(0.7, "in"),
+    style = north_arrow_fancy_orienteering
+  ) +
   theme_void() +
   theme(legend.position = "none")  # remove legend
 nest_locations_plot
@@ -727,10 +819,10 @@ nest_locations_plot
 # create four inset maps to go with this map
 
 # read in transects
-lbb <- st_read("2026/Data/nest_check_spatial_files/LBB_track.gpx", layer = "tracks", quiet = TRUE)
+lbb <- st_read("Data/nest_check_spatial_files/LBB_track.gpx", layer = "tracks", quiet = TRUE)
 
 # read in polygon of island
-lbb_polygon <- st_read("2026/Data/nest_check_spatial_files/LBB.shp")
+lbb_polygon <- st_read("Data/nest_check_spatial_files/LBB.shp")
 
 # Create a proper bbox vector for map
 # start by created a buffered boundary box around the aerial tracks
@@ -751,10 +843,10 @@ lbb_plot
 ### Clewiston Spit -------------------------------------------------------
 
 # read in transects
-cs <- st_read("2026/Data/nest_check_spatial_files/CS1_Track.gpx", layer = "tracks", quiet = TRUE)
+cs <- st_read("Data/nest_check_spatial_files/CS1_Track.gpx", layer = "tracks", quiet = TRUE)
 
 # read in polygon of island
-cs_polygon <- st_read("2026/Data/nest_check_spatial_files/CS1.shp")
+cs_polygon <- st_read("Data/nest_check_spatial_files/CS1.shp")
 
 # Create a proper bbox vector for map
 # start by created a buffered boundary box around the aerial tracks
@@ -775,10 +867,10 @@ cs_plot
 ### Clewiston Spit 2 -------------------------------------------------------
 
 # read in transects
-cs2 <- st_read("2026/Data/nest_check_spatial_files/CS2_Track.gpx", layer = "tracks", quiet = TRUE)
+cs2 <- st_read("Data/nest_check_spatial_files/CS2_Track.gpx", layer = "tracks", quiet = TRUE)
 
 # read in polygon of island
-cs2_polygon <- st_read("2026/Data/nest_check_spatial_files/CS2.shp")
+cs2_polygon <- st_read("Data/nest_check_spatial_files/CS2.shp")
 
 # Create a proper bbox vector for map
 # start by created a buffered boundary box around the aerial tracks
@@ -799,10 +891,10 @@ cs2_plot
 ### Rock Island 11 -------------------------------------------------------
 
 # read in transects
-ri11 <- st_read("2026/Data/nest_check_spatial_files/RI11_Track.gpx", layer = "tracks", quiet = TRUE)
+ri11 <- st_read("Data/nest_check_spatial_files/RI11_Track.gpx", layer = "tracks", quiet = TRUE)
 
 # read in polygon of island
-ri_polygon11 <- st_read("2026/Data/nest_check_spatial_files/RI11.shp")
+ri_polygon11 <- st_read("Data/nest_check_spatial_files/RI11.shp")
 
 # Create a proper bbox vector for map
 # start by created a buffered boundary box around the aerial tracks
@@ -817,16 +909,16 @@ sat_map <- get_tiles(bbox_sfc, zoom=19, provider = "Esri.WorldImagery", crop = F
 ri_plot11 <- ggRGB(sat_map, r = 1, g = 2, b = 3) +
   geom_sf(data = ri11, color = "white", lwd = 2, inherit.aes = FALSE) +
   theme_void() +
-  ggtitle("Rock Island 11") 
+  ggtitle("Rock Islands") 
 ri_plot11
 
 ### Rock Island 12 -------------------------------------------------------
 
 # read in transects
-ri12 <- st_read("2026/Data/nest_check_spatial_files/RI12_Track.gpx", layer = "tracks", quiet = TRUE)
+ri12 <- st_read("Data/nest_check_spatial_files/RI12_Track.gpx", layer = "tracks", quiet = TRUE)
 
 # read in polygon of island
-ri_polygon12 <- st_read("2026/Data/nest_check_spatial_files/RI12.shp")
+ri_polygon12 <- st_read("Data/nest_check_spatial_files/RI12.shp")
 
 # Create a proper bbox vector for map
 # start by created a buffered boundary box around the aerial tracks
@@ -841,7 +933,7 @@ sat_map <- get_tiles(bbox_sfc, zoom=19, provider = "Esri.WorldImagery", crop = F
 ri_plot12 <- ggRGB(sat_map, r = 1, g = 2, b = 3) +
   geom_sf(data = ri12, color = "white", lwd = 2, inherit.aes = FALSE) +
   theme_void() +
-  ggtitle("Rock Island 12") 
+  ggtitle("Rock Islands") 
 ri_plot12
 
 
@@ -910,12 +1002,13 @@ combined_map <- nest_locations_box +
 # Display
 combined_map
 
-ggsave("2026/Figures/Figure_2.jpeg", height=7.5, width=10, units="in")
+ggsave("Figures/Figure_2.jpeg", height=7.5, width=10, units="in")
 
 # Hydrology ---------------------------------------------------
 
 # start by summarizing rainfall data
-rainfall <- read_csv("2026/Data/rainfall.csv") 
+rainfall <- read_csv("Data/lake_stage_and_rainfall.csv") %>%
+  filter(PARAMETER=="RAIN")
 
 # define date column then filter to data before July 1st
 rainfall_clean <- rainfall %>%
@@ -953,7 +1046,8 @@ rainfall_hist <- rainfall_clean_hist %>%
   filter(month_day != mdy("02/29/2000"))
 
 # now let's summarize water level data
-water <- read_csv("2026/Data/lake_stage.csv") 
+water <- read_csv("Data/lake_stage_and_rainfall.csv") %>%
+  filter(PARAMETER=="STG")
 
 # define date column, create day and month columns and filter out months after June
 water_clean <- water %>%
@@ -1068,7 +1162,7 @@ ggplot() +
     )
   )
 
-ggsave("2026/Figures/Figure_6.jpeg", height=10, width=12, units="in")
+ggsave("Figures/Figure_6.jpeg", height=10, width=12, units="in")
 
 ## Recessions and Reversals ---------------------------------------------------
 
@@ -1252,7 +1346,7 @@ egg_stage %>%
 ## Nest Initiation ---------------------------------------------------------
 
 # to calculate nest initiation, we need to determine the hatch date then substract 
-# 21 days for SNEG/TRHE, GLIB, and WHIB but 25 days for GREG and GBHE and 24 for ROSP
+# 21 days for SNEG/TRHE, GLIB, and WHIB but 25 days for GREG and 42 for ROSP
 # hatch date will be the date between the day we observed the first hatchling and
 # the previous nest check
 
@@ -1337,7 +1431,7 @@ median_nest_focal <- median_nest %>%
   filter(!Species %in% c("Cattle Egret", "Anhinga"))
 
 # let's calculate average historic median
-historic_timing <- read_csv("2026/Data/historic_timing.csv")
+historic_timing <- read_csv("Data/historic_timing.csv")
 
 historic_timing <- historic_timing %>%
   # Convert Initiation_date to a Date (dummy year, 2026)
@@ -1438,7 +1532,7 @@ ggplot(nest_week_focal, aes(x = week_mid_date, y = count)) +
   theme_minimal(base_size = 14) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none")
 
-ggsave("2026/Figures/Figure_5.jpeg", height=6, width=6.8, units="in")
+ggsave("Figures/Figure_5.jpeg", height=6, width=6.8, units="in")
 
 ## Nest Survival -----------------------------------------------------------
 
@@ -1736,7 +1830,7 @@ calculate_mayfield_survival(nest_data, "Rock Island 12")
 ## Compare to historic average survival rates -------------------------------------------------------
 
 # Compare to average rates from prevous annual reports
-historic_success <- read_csv("2026/Data/historic_nest_success.csv")
+historic_success <- read_csv("Data/historic_nest_success.csv")
 
 historic_success <- historic_success %>%
   filter(complete.cases(Species)) %>%
@@ -1849,10 +1943,8 @@ survival_calc %>%
 
 ## Total nest initiations against recession rate ---------------------------------------------------
 
-# In this section, we will examine the trend between recession rate and initiation date
+# in this section, we will examine the trend between recession rate and initiation date
 # to do this, we will be utilizting the weekly_slope function created earlier
-
-# The year "2000" is used as a dummy year, data is not from the year 2000
 
 # start by creating a sequence of weeks that go from Sun-Sat
 # define start and end of the whole period
@@ -1963,20 +2055,20 @@ ggplot(plot_dat, aes(x = week_mid_date)) +
   labs(x = "Date") +
   theme_bw(base_size = 14)
 
-ggsave("2026/Figures/Figure_7.jpeg", height=5, width=7, units="in")
+ggsave("Figures/Figure_7.jpeg", height=5, width=7, units="in")
 
 # Historic Nest Counts ---------------------------------------------------
 
 # read in data
-historic <- read_csv("2026/Data/Historic_Nest_Counts_Lake_O.csv")
-max_counts <- read_csv("2026/Tables/Table_2.csv")
+historic <- read_csv("Data/Historic_Nest_Counts_Lake_O.csv")
+max_counts <- read_csv("Tables/Table_2.csv")
 
 # format this years data to add to the historic counts
 nest_counts_cur <- max_counts %>%
   pivot_longer(GREG:ANHI, names_to = "Wading Bird Code", values_to = "Number")
 
 # read in species codes table
-species_codes <- read_csv("2026/Data/species_codes.csv")
+species_codes <- read_csv("Data/species_codes.csv")
 
 nest_counts_cur <- left_join(nest_counts_cur, species_codes, by=c("Wading Bird Code"))
 
@@ -2020,7 +2112,7 @@ gator_farm <- nest_counts_hist %>%
 mean(gator_farm[gator_farm$`Report Year`!="2026",]$count)
 
 # save this data, so we can append to it again in the future
-# write_csv(nest_counts_hist, "2026/Data/Historic_Nest_Counts_Lake_O_with_2026.csv")
+# write_csv(nest_counts_hist, "Reports/Annual reports/2025/Data/Historic_Nest_Counts_Lake_O_with_2025.csv")
 
 # let's remove non-wading bird species from the dataset
 nest_counts_hist <- nest_counts_hist %>%
@@ -2040,6 +2132,7 @@ nest_col_year_complete <- nest_col_year %>%
   arrange(`Report Year`, `Report Year`)
 
 # plot the data
+
 ggplot(nest_col_year_complete, aes(x = `Report Year`, y = nest_counts, color = `Colony Type`)) +
   geom_line(size = 1.2) +
   geom_point(
@@ -2069,7 +2162,7 @@ ggplot(nest_col_year_complete, aes(x = `Report Year`, y = nest_counts, color = `
     axis.text.x = element_text(angle = 45, hjust = 1)
   )
 
-ggsave("2026/Figures/Figure_8.jpeg", height=4, width=8, units="in")
+ggsave("Figures/Figure_8.jpeg", height=4, width=8, units="in")
 
 ## Historic summary of ROSP and WOST ----------------------------------
 
@@ -2123,6 +2216,89 @@ wost_hist_rec <- wost_hist %>%
 mean(wost_hist_rec$count)
 sd(wost_hist_rec$count)
 
+### Long-term ----------------------------------
+
+long_term <- historic %>%
+  filter(`Report Year` %in% c(2008:2023),
+         Number != "P")
+
+# total nests by year
+total_long <- long_term %>%
+  filter(!Species %in% c("Cattle Egret", "Anhinga", "Double-crested Cormorant")) %>%
+  group_by(`Report Year`) %>%
+  summarise(total=sum(as.numeric(Number), na.rm=TRUE)) %>%
+  arrange(desc(total))
+total_long
+
+summary(total_long$total)
+sd(total_long$total)
+
+ggplot(total_long, aes(x = `Report Year`, y = total)) +
+  geom_line(lwd=1.5) +
+  geom_point() +
+  theme_minimal(base_size = 25) +
+  labs(x = "Year", y = "Number of Nests", "Long-Term: 2014-2023")
+
+# trends by species
+long_term_sum <- long_term %>%
+  filter(!Species %in% c("Cattle Egret", "Anhinga", "Double-crested Cormorant")) %>%
+  group_by(`Report Year`, Species) %>%
+  summarise(total=sum(as.numeric(Number), na.rm=TRUE))
+
+ggplot(long_term_sum, aes(x = `Report Year`, y = total)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ Species, scales = "free_y") +
+  theme_minimal(base_size = 20) +
+  labs(x = "Year", y = "Number of Nests", title = "Number of Nests From 2014 to 2023") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+# overall totals
+long_term %>%
+  filter(!Species %in% c("Cattle Egret", "Anhinga", "Double-crested Cormorant")) %>%
+  group_by(Species) %>%
+  summarise(total=sum(as.numeric(Number), na.rm=TRUE)) %>%
+  arrange(desc(total))
+
+# overall averages
+total_by_year <- long_term %>%
+  filter(!Species %in% c("Cattle Egret", "Anhinga", "Double-crested Cormorant")) %>%
+  group_by(`Report Year`, Species) %>%
+  summarise(total=sum(as.numeric(Number),  na.rm=TRUE))
+
+total_by_year %>%
+  group_by(Species) %>%
+  summarise(average=mean(as.numeric(total), na.rm=TRUE),
+            sd=sd(as.numeric(total), na.rm=TRUE)) %>% 
+  arrange(desc(average))
+
+# When were spoonbills and woodstorks observed
+long_term_sum %>%
+  filter(Species %in% c("Roseate Spoonbill", "Wood Stork"))
+
+# number of colonies
+lt_colonies_year <- long_term %>%
+  group_by(`Report Year`) %>%
+  summarise(count=n_distinct(`Colony Name`)) %>%
+  arrange(desc(count))
+lt_colonies_year
+
+mean(lt_colonies_year$count)
+sd(lt_colonies_year$count)
+
+# number of coloines by type
+lt_colonies_year_ty <- long_term %>%
+  group_by(`Report Year`, `Colony Type`) %>%
+  summarise(count=n_distinct(`Colony Name`))
+
+lt_colonies_year_ty %>%
+  group_by(`Colony Type`) %>%
+  summarise(average=mean(count),
+            sd=sd(count))
+
+
 # Area of Willow index ----------------------------------------------------
 
 # Area of willow index calculation
@@ -2154,7 +2330,8 @@ calc_willow_index <- function(year, data) {
 }
 
 # read in lake stage data
-water <- read_csv("2026/Data/lake_stage.csv") 
+water <- read_csv("Data/lake_stage_and_rainfall.csv") %>%
+  filter(PARAMETER=="STG")
 
 water_willow_index <- water %>%
   select(TIMESTAMP, VALUE) %>%
@@ -2209,7 +2386,7 @@ ggplot(willow_index_df,
   ) +
   theme_classic(base_size=16)
 
-ggsave("2026/Figures/Figure_11.jpeg", height=4, width=6, units="in")
+ggsave("Figures/Figure_11.jpeg", height=4, width=6, units="in")
 
 
 
